@@ -1,0 +1,5 @@
+# Ignored files
+*.csv
+*.csv.gz
+.ipynb_checkpoints/*
+*.pkl
