@@ -5,7 +5,7 @@ import re
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 from pytruncreg import truncreg
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier, GradientBoostingRegressor, GradientBoostingClassifier
 from ..utils.util import DataSet
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -251,17 +251,28 @@ def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name
                 cov_fit = fit_func(covmodel=covmodels[k], covname=covnames[k], fit_data=fit_data)
                 covariate_fits[cov] = cov_fit
                 
-            elif covtypes[k] == 'unknown':
+            elif covtypes[k] == 'unknown-binary':
                 covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
-                fit = RandomForestRegressor(n_jobs=ncores).fit(fit_data[covar_model_vars], fit_data[covnames[k]])
-                
-                #min_cov = fit_data[cov].min()
-                #max_cov = fit_data[cov].max()
-                #bound = [min_cov, max_cov]
-                #bounds[cov] = bound
-                #rmse = np.sqrt(np.mean((fit.predict() - fit_data[cov]) ** 2))
-                #rmses[cov] = rmse
-                
+                #print(covnames[k])
+                #print(covar_model_vars)
+                fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                #fit = GradientBoostingClassifier().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                                
+                covariate_fits[cov] = fit
+                if return_fits:
+                    model_coeffs[cov] = fit.params
+                    model_stderrs[cov] = fit.bse
+                    model_vcovs[cov] = fit.cov_params()
+                    model_fits_summary[cov] = fit.summary()
+
+
+            elif covtypes[k] == 'unknown-continuous':
+                covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
+                #print(covnames[k])
+                #print(covar_model_vars)
+                fit = RandomForestRegressor(n_estimators=50, n_jobs=ncores).fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                #fit = GradientBoostingRegressor().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+
                 covariate_fits[cov] = fit
                 if return_fits:
                     model_coeffs[cov] = fit.params
@@ -352,17 +363,17 @@ def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_d
     else:
         fit_data = fit_data[fit_data[outcome_name].notna()]
     if outcome_type == 'survival' or outcome_type == 'binary_eof':
-        if ymodel_type == 'Random_forest':
-            print('Using RF for outcome model')
+        if ymodel_type == 'ML':
             outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
-            outcome_fit = RandomForestClassifier(n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
+            outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
+            #outcome_fit = GradientBoostingClassifier().fit(fit_data[outcome_model_vars], fit_data[outcome_name])
         else:
             outcome_fit = smf.glm(ymodel, fit_data, family=sm.families.Binomial()).fit()
     elif outcome_type == 'continuous_eof':
-        if ymodel_type == 'Random_forest':
-            print('Using RF for outcome model')
+        if ymodel_type == 'ML':
             outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
-            outcome_fit = RandomForestRegressor(n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
+            outcome_fit = RandomForestRegressor(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
+            #outcome_fit = GradientBoostingRegressor().fit(fit_data[outcome_model_vars], fit_data[outcome_name])
         else:
             fit_data_parquet = fit_data.to_parquet()
             fit_data_parquet = DataSet(fit_data_parquet)

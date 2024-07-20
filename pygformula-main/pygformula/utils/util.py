@@ -700,6 +700,15 @@ def get_hr_output(boot_results_dicts, nsamples, ci_method, hazard_ratio):
     boot_hr = boot_hr
     print(boot_hr)
     
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
 
 def save_config(save_path, **config_parameters):
     config_dict = {}
@@ -708,7 +717,7 @@ def save_config(save_path, **config_parameters):
             config_dict[key] = int(value)
         else:
             config_dict[key] = value
-    config_dict = json.dumps(config_dict, indent=1)
+    config_dict = json.dumps(config_dict, indent=1, cls=NpEncoder)
     config_path = os.path.join(save_path, 'config_dict.json')
     with open(config_path, 'w') as f:
         f.write(config_dict)

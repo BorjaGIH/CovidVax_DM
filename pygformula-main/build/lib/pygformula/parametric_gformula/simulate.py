@@ -233,7 +233,7 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
             
             if ymodel_type=='ML':
                 predictive_vars = list(set(new_df.columns) - set([id]))
-                pre_y = outcome_fit.predict(new_df[outcome_fit.feature_names_in_])
+                pre_y = pd.Series(outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,1])
             else:
                 pre_y = outcome_fit.predict(new_df)
 
@@ -310,6 +310,7 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
                             prediction = list(map(lambda x: pd.Categorical(obs_data[cov]).categories[x], predict_index))
                             new_df[cov] = prediction
 
+
                         elif covtypes[k] == 'bounded normal':
                             estimated_mean = covariate_fits[cov].predict(new_df)
                             prediction = estimated_mean.apply(norm_sample, rmse=rmses[cov])
@@ -359,9 +360,7 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
 
                         elif covtypes[k] == 'unknown-binary':
                             covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
-                            #print(covnames[k])
-                            #print(covar_model_vars)
-                            prediction = covariate_fits[cov].predict(new_df[covar_model_vars])
+                            prediction = pd.Series(covariate_fits[cov].predict(new_df[covar_model_vars]))
                             new_df[cov] = prediction
                             # Free up memory
                             #del covariate_fits[cov]
@@ -369,9 +368,7 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
 
                         elif covtypes[k] == 'unknown-continuous':
                             covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
-                            #print(covnames[k])
-                            #print(covar_model_vars)
-                            prediction = covariate_fits[cov].predict(new_df[covar_model_vars])
+                            prediction = pd.Series(covariate_fits[cov].predict(new_df[covar_model_vars]))
                             new_df[cov] = prediction
                             # Free up memory
                             #del covariate_fits[cov]
@@ -434,8 +431,7 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
 
             if ymodel_type=='ML':
                 predictive_vars = list(set(new_df.columns) - set([id]))
-                #print(predictive_vars)
-                pre_y = outcome_fit.predict(new_df[outcome_fit.feature_names_in_])
+                pre_y = pd.Series(outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,1])
                 #del outcome_fit
                 #gc.collect()
             else:
@@ -493,6 +489,6 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
     if outcome_type == 'binary_eof':
         g_result = pool.loc[pool[time_name] == time_points - 1]['Py'].mean()
 
-    gc.collect()
+    #gc.collect()
     return {'g_result': g_result, 'pool': pool}
 

@@ -9,6 +9,7 @@ from scipy.stats import truncnorm
 from .histories import update_precoded_history, update_custom_history
 from ..utils.helper import categorical_func
 from .interventions import intervention_func
+import gc
 
 
 def binorm_sample(prob):
@@ -19,6 +20,7 @@ def norm_sample(mean, rmse):
 
 def truc_sample(mean, rmse, a, b):
     return truncnorm.rvs((a - mean) / rmse, (b - mean) / rmse, loc=mean, scale=rmse)
+
 
 
 def simulate(seed, time_points, time_name, id, obs_data, basecovs,
@@ -229,9 +231,9 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
 
                 new_df[compevent_name] = new_df['prob_D'].apply(binorm_sample)
             
-            if ymodel_type=='Random_forest':
+            if ymodel_type=='ML':
                 predictive_vars = list(set(new_df.columns) - set([id]))
-                pre_y = outcome_fit.predict(new_df[outcome_fit.feature_names_in_])
+                pre_y = pd.Series(outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,1])
             else:
                 pre_y = outcome_fit.predict(new_df)
 
@@ -308,6 +310,7 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
                             prediction = list(map(lambda x: pd.Categorical(obs_data[cov]).categories[x], predict_index))
                             new_df[cov] = prediction
 
+
                         elif covtypes[k] == 'bounded normal':
                             estimated_mean = covariate_fits[cov].predict(new_df)
                             prediction = estimated_mean.apply(norm_sample, rmse=rmses[cov])
@@ -339,8 +342,7 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
                             else:
                                 trunc_bounds = [-float('inf'), trunc_params[k][0]]
 
-                            prediction = pd.Series(estimated_mean).apply(truc_sample, rmse=rmses[cov], a=trunc_bounds[0],
-                                                                     b=trunc_bounds[1])
+                            prediction = pd.Series(estimated_mean).apply(truc_sample, rmse=rmses[cov], a=trunc_bounds[0], b=trunc_bounds[1])
                             prediction = np.where(prediction < bounds[cov][0], bounds[cov][0], prediction)
                             prediction = np.where(prediction > bounds[cov][1], bounds[cov][1], prediction)
                             new_df[cov] = prediction
@@ -355,6 +357,22 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
                             pred_func = covpredict_custom[k]
                             prediction = pred_func(covmodel=covmodels[k], new_df=new_df, fit=covariate_fits[cov])
                             new_df[cov] = prediction
+
+                        elif covtypes[k] == 'unknown-binary':
+                            covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
+                            prediction = pd.Series(covariate_fits[cov].predict(new_df[covar_model_vars]))
+                            new_df[cov] = prediction
+                            # Free up memory
+                            #del covariate_fits[cov]
+                            #gc.collect()
+
+                        elif covtypes[k] == 'unknown-continuous':
+                            covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
+                            prediction = pd.Series(covariate_fits[cov].predict(new_df[covar_model_vars]))
+                            new_df[cov] = prediction
+                            # Free up memory
+                            #del covariate_fits[cov]
+                            #gc.collect()
 
                         if visit_covs and cov in visit_covs: ### assign visited covariate the model output value or its lagged value based on visit indicator
                             visit_name = visit_names[visit_covs.index(cov)]
@@ -411,10 +429,11 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
 
                 new_df[compevent_name] = new_df['prob_D'].apply(binorm_sample)
 
-            if ymodel_type=='Random_forest':
+            if ymodel_type=='ML':
                 predictive_vars = list(set(new_df.columns) - set([id]))
-                #print(predictive_vars)
-                pre_y = outcome_fit.predict(new_df[outcome_fit.feature_names_in_])
+                pre_y = pd.Series(outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,1])
+                #del outcome_fit
+                #gc.collect()
             else:
                 pre_y = outcome_fit.predict(new_df)
 
@@ -470,5 +489,6 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
     if outcome_type == 'binary_eof':
         g_result = pool.loc[pool[time_name] == time_points - 1]['Py'].mean()
 
+    #gc.collect()
     return {'g_result': g_result, 'pool': pool}
 

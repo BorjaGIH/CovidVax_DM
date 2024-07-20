@@ -550,7 +550,7 @@ class ParametricGformula:
         print('start simulating.')
         if self.parallel:
             self.all_simulate_results = (
-                Parallel(n_jobs=self.ncores, prefer="threads") # Consider trying prefer="threads"
+                Parallel(n_jobs=self.ncores, prefer="threads") # Consider trying prefer="threads"  prefer="threads"
                 (delayed(simulate)(seed=self.simul_seed, time_points=self.time_points, time_name=self.time_name,
                                    id=self.id, covnames=self.covnames, basecovs=self.basecovs,
                                    covmodels=self.covmodels,  covtypes=self.covtypes, cov_hist=self.cov_hist,
@@ -663,8 +663,9 @@ class ParametricGformula:
 
         else:
             if self.parallel:
+                print('Start bootstrapping for CIs')
                 boot_results_dicts = (
-                    Parallel(n_jobs=self.ncores, prefer="threads") # Consider trying prefer="threads"
+                    Parallel(n_jobs=self.ncores, prefer="threads") # Consider trying prefer="threads"  prefer="threads"
                     (delayed(Bootstrap)(obs_data=self.origin_obs_data, boot_id=i, boot_seeds=self.boot_seeds,
                                                  int_descript=self.int_descript,
                                                  intervention_dicts = self.intervention_dicts,
@@ -689,6 +690,7 @@ class ParametricGformula:
                                         )
                      for i in tqdm(range(self.nsamples), desc='Bootstrap progress'))
                 )
+                print('End bootstrapping for CIs')
             else:
                 boot_results_dicts = []
                 for i in tqdm(range(self.nsamples), desc='Bootstrap progress'):

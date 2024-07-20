@@ -1,5 +1,0 @@
-1
-2
-3
-start fitting parametric model.
-start simulating.

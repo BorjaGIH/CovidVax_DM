@@ -175,7 +175,7 @@ def error_catch(obs_data, id, time_points, interventions, intervention_dicts, in
         raise ValueError('Missing outcome name in the observational data.')
     if ymodel is None:
         raise ValueError('Missing outcome model.')
-    if ymodel_type not in [None, 'Random_forest']:
+    if ymodel_type not in [None, 'ML']:
         raise ValueError('Outcome model type different from default currently can only be Random Forest')
     if outcome_type not in ['survival', 'continuous_eof', 'binary_eof']:
         raise ValueError('Please specify the outcome type as survival, continuous_eof, or binary_eof.')
@@ -231,7 +231,7 @@ def error_catch(obs_data, id, time_points, interventions, intervention_dicts, in
             raise ValueError('covfits_custom and covpredict_custom should have the same length.')
 
     all_covtypes = ['binary', 'normal', 'categorical', 'bounded normal', 'zero-inflated normal', 'truncated normal',
-                    'absorbing', 'categorical time', 'square time', 'custom', 'unknown']
+                    'absorbing', 'categorical time', 'square time', 'custom', 'unknown-binary', 'unknown-continuous']
 
     if covtypes is not None:
         for k, covtype in enumerate(covtypes):
@@ -700,6 +700,15 @@ def get_hr_output(boot_results_dicts, nsamples, ci_method, hazard_ratio):
     boot_hr = boot_hr
     print(boot_hr)
     
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
 
 def save_config(save_path, **config_parameters):
     config_dict = {}
@@ -708,7 +717,7 @@ def save_config(save_path, **config_parameters):
             config_dict[key] = int(value)
         else:
             config_dict[key] = value
-    config_dict = json.dumps(config_dict, indent=1)
+    config_dict = json.dumps(config_dict, indent=1, cls=NpEncoder)
     config_path = os.path.join(save_path, 'config_dict.json')
     with open(config_path, 'w') as f:
         f.write(config_dict)
