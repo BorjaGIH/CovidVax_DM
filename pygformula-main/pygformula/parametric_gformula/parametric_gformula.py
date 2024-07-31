@@ -34,7 +34,7 @@ import os
 from joblib import Parallel, delayed
 from tqdm import tqdm
 from lifelines import CoxPHFitter
-from .fit import fit_covariate_model, fit_ymodel, fit_compevent_model, fit_censor_model
+from .fit import fit_covariate_model, fit_ymodel, fit_compevent_model, fit_censor_model, fit_predict_censor_CCW_model
 from .histories import update_precoded_history, update_custom_history
 from .simulate import simulate
 from .bootstrap import Bootstrap
@@ -125,6 +125,12 @@ class ParametricGformula:
     censor_model: Str, default is None
         A string specifying the model statement for the censoring variable. Only applicable when using inverse
         probability weights to estimate the natural course means / risk from the observed data.
+        
+    censor_CCW_name: Str, default is None
+        A string specifying the name of the censoring variable for the CCW process in obs_data.
+
+    censor_CCW_model: Str, default is None
+        A string specifying the model statement for the censoring variable of the CCW process.
 
     model_fits: Bool, default is False
         A boolean value indicating whether to return the parameter estimates of the models.
@@ -245,6 +251,8 @@ class ParametricGformula:
                  intcomp=None,
                  censor_name=None,
                  censor_model=None,
+                 censor_CCW_name=None,
+                 censor_CCW_model=None,
                  model_fits=False,
                  boot_diag=False,
                  ipw_cutoff_quantile=None,
@@ -292,6 +300,8 @@ class ParametricGformula:
         self.intcomp = intcomp
         self.censor_name = censor_name
         self.censor_model = censor_model
+        self.censor_CCW_name = censor_CCW_name
+        self.censor_CCW_model = censor_CCW_model
         self.model_fits = model_fits
         self.boot_diag = boot_diag
         self.ipw_cutoff_quantile = ipw_cutoff_quantile
@@ -337,6 +347,11 @@ class ParametricGformula:
             self.censor = True
         else:
             self.censor = False
+        
+        if self.censor_CCW_name is not None:
+            self.censor_CCW = True
+        else:
+            self.censor_CCW = False
 
         if self.compevent_name is not None and not self.compevent_cens:
             self.competing = True
@@ -361,7 +376,7 @@ class ParametricGformula:
 
         if self.covmodels is not None:
             self.cov_hist = get_cov_hist_info(self.covnames, self.covmodels, self.covtypes, self.ymodel,
-                                         self.compevent_model, self.censor_model, self.visit_covs, self.ts_visit_names)
+                                         self.compevent_model, self.censor_model, self.censor_CCW_model, self.visit_covs, self.ts_visit_names)
         else:
             self.cov_hist = None
 
@@ -378,6 +393,7 @@ class ParametricGformula:
                     compevent_name=self.compevent_name, compevent_model=self.compevent_model,
                     intcomp=self.intcomp, time_thresholds=self.time_thresholds,
                     censor_name=self.censor_name, censor_model=self.censor_model,
+                    censor_CCW_name=self.censor_CCW_name, censor_CCW_model=self.censor_CCW_model,
                     ipw_cutoff_quantile=self.ipw_cutoff_quantile, ipw_cutoff_value=self.ipw_cutoff_quantile,
                     outcome_type=self.outcome_type, trunc_params=self.trunc_params, basecovs=self.basecovs,
                     ref_int=self.ref_int)
@@ -438,6 +454,9 @@ class ParametricGformula:
                 'censor': self.censor,
                 'censor_name': self.censor_name,
                 'censor_model': self.censor_model,
+                'censor_CCW': self.censor_CCW,
+                'censor_CCW_name': self.censor_CCW_name,
+                'censor_CCW_model': self.censor_CCW_model,
                 'model_fits': self.model_fits,
                 'boot_diag': self.boot_diag,
                 'ipw_cutoff_quantile': self.ipw_cutoff_quantile,
@@ -485,6 +504,13 @@ class ParametricGformula:
         model_stderrs = {}
         model_vcovs = {}
         model_fits_summary = {}
+        
+        # Compute stabilized weights and remove censored individuals
+        if self.censor_CCW:
+            self.obs_data = fit_predict_censor_CCW_model(censor_CCW_model=self.censor_CCW_model, censor_CCW_name=self.censor_CCW_name, covnames=self.covnames, time_name=self.time_name, id=self.id, obs_data=self.obs_data, ncores=self.ncores)
+        else:
+            pass
+        
         if self.covnames is not None:
             covariate_fits, bounds, rmses, cov_model_coeffs, cov_model_stderrs, cov_model_vcovs, cov_model_fits_summary = \
                 fit_covariate_model(covmodels=self.covmodels, covnames=self.covnames, covtypes=self.covtypes,
@@ -500,12 +526,12 @@ class ParametricGformula:
             covariate_fits = None
             bounds = None
             rmses = None
-
+                    
         outcome_fit, ymodel_coeffs, ymodel_stderrs, ymodel_vcovs, ymodel_fits_summary = \
             fit_ymodel(ymodel=self.ymodel, ymodel_type=self.ymodel_type, outcome_type=self.outcome_type,
                               outcome_name=self.outcome_name, time_name=self.time_name, obs_data=self.obs_data,
                               competing=self.competing, compevent_name=self.compevent_name, return_fits=self.model_fits,
-                              yrestrictions = self.yrestrictions, ncores = self.ncores)
+                              yrestrictions = self.yrestrictions, ncores = self.ncores, censor_CCW=self.censor_CCW)
         model_coeffs.update(ymodel_coeffs)
         model_stderrs.update(ymodel_stderrs)
         model_vcovs.update(ymodel_vcovs)

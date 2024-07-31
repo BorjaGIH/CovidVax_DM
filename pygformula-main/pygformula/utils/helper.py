@@ -2,7 +2,7 @@ import re
 import numpy as np
 
 
-def get_cov_hist_info(covnames, covmodels, covtypes, ymodel, compevent_model=None, censor_model=None,
+def get_cov_hist_info(covnames, covmodels, covtypes, ymodel, compevent_model=None, censor_model=None, censor_CCW_model=None,
                       visit_covs=None, ts_visit_names=None):
     """
     This is an internal function to get the lagged term and its number indicator, cumavg term, and lagavg term and its number
@@ -32,7 +32,10 @@ def get_cov_hist_info(covnames, covmodels, covtypes, ymodel, compevent_model=Non
     censor_model : Str, (default=None)
         A string specifying the model statement for the censoring variable. Only applicable when using inverse
         probability weights to estimate the natural course means / risk from the observed data.
-
+        
+    censor_CCW_model : Str, (default=None)
+        A string specifying the model statement for the censoring variable for the CCW process.
+        
     visit_covs : List, (default=None)
         A list of strings, each of which specifies the name of a covariate whose modeling depends on the visit process.
 
@@ -60,6 +63,8 @@ def get_cov_hist_info(covnames, covmodels, covtypes, ymodel, compevent_model=Non
         all_variables.extend(re.split('[~|+]', compevent_model.replace(' ', '')))
     if censor_model is not None:
         all_variables.extend(re.split('[~|+]', censor_model.replace(' ', '')))
+    if censor_CCW_model is not None:
+        all_variables.extend(re.split('[~|+]', censor_CCW_model.replace(' ', '')))
 
     if ts_visit_names:
         covnames = covnames + ts_visit_names

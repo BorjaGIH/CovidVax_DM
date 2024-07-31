@@ -9,6 +9,7 @@ from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier, Grad
 from ..utils.util import DataSet
 import pyarrow as pa
 import pyarrow.parquet as pq
+import time
 
 
 def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name, obs_data, return_fits,
@@ -283,8 +284,7 @@ def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name
     return covariate_fits, bounds, rmses, model_coeffs, model_stderrs, model_vcovs, model_fits_summary
 
 
-def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_data, competing, compevent_name,
-                      return_fits, yrestrictions, ncores):
+def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_data, competing, compevent_name,  return_fits, yrestrictions, ncores, censor_CCW=None):
     """
     This is a function to fit parametric model for the outcome.
 
@@ -362,22 +362,37 @@ def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_d
         fit_data = fit_data[(fit_data[outcome_name].notna()) & (fit_data[compevent_name] == 0)]
     else:
         fit_data = fit_data[fit_data[outcome_name].notna()]
+        
     if outcome_type == 'survival' or outcome_type == 'binary_eof':
         if ymodel_type == 'ML':
             outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
-            outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
-            #outcome_fit = GradientBoostingClassifier().fit(fit_data[outcome_model_vars], fit_data[outcome_name])
+            if censor_CCW is not None:
+                outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name], sample_weight=fit_data['weights_CCW'])
+            else:
+                outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
         else:
-            outcome_fit = smf.glm(ymodel, fit_data, family=sm.families.Binomial()).fit()
+            if censor_CCW is not None:
+                raise ValueError('CCW  is not implemented for GLM outcome (requires ML outcome)')
+            else:
+                fit_data_parquet = fit_data.to_parquet()
+                fit_data_parquet = DataSet(fit_data_parquet)
+                outcome_fit = smf.glm(ymodel, fit_data, family=sm.families.Binomial()).fit()
+                
     elif outcome_type == 'continuous_eof':
         if ymodel_type == 'ML':
             outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
-            outcome_fit = RandomForestRegressor(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
-            #outcome_fit = GradientBoostingRegressor().fit(fit_data[outcome_model_vars], fit_data[outcome_name])
+            if censor_CCW is not None:
+                outcome_fit = RandomForestRegressor(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name], sample_weight=fit_data['weights_CCW'])
+            else:
+                outcome_fit = RandomForestRegressor(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
         else:
-            fit_data_parquet = fit_data.to_parquet()
-            fit_data_parquet = DataSet(fit_data_parquet)
-            outcome_fit = smf.glm(ymodel, data=fit_data_parquet, family=sm.families.Gaussian()).fit()
+            if censor_CCW is not None:
+                raise ValueError('CCW  is not implemented for GLM outcome (requires ML outcome)')
+            else:
+                fit_data_parquet = fit_data.to_parquet()
+                fit_data_parquet = DataSet(fit_data_parquet)
+                outcome_fit = smf.glm(ymodel, data=fit_data_parquet, family=sm.families.Gaussian()).fit()
+                
     if return_fits:
         model_coeffs[outcome_name] = outcome_fit.params
         model_stderrs[outcome_name] = outcome_fit.bse
@@ -524,5 +539,79 @@ def fit_censor_model(censor_model, censor_name, time_name, obs_data, return_fits
     return censor_fit, model_coeffs, model_stderrs, model_vcovs, model_fits_summary
 
 
+def fit_predict_censor_CCW_model(censor_CCW_model, censor_CCW_name, covnames, time_name, id, obs_data, ncores):
+    """
+    This is a function to fit parametric model for the CCW censor event.
 
+    Parameters
+    ----------
+    censor_model: Str
+        A string specifying the model statement for the censoring variable of the CCW process.
 
+    censor_name: Str, default is None
+        A string specifying the name of the censoring variable of the CCW process in obs_data.
+
+    time_name: Str
+        A string specifying the name of the time variable in obs_data.
+
+    obs_data: DataFrame
+        Observed data or resampled data used to estimate the parameters of the censor model.
+
+    return_fits: Bool
+        A boolean value indicating whether to get the coefficients, standard errors, variance-covariance matrices of the
+        fitted censor model.
+
+    Returns
+    -------
+    censor_fit: Class
+        A class object of the fitted model for the censoring event.
+
+    model_coeffs: Dict
+        A dictionary where the key is the name of censoring event and the value is the parameter estimates of the
+        fitted censor model.
+
+    model_stderrs: Dict
+        A dictionary where the key is the name of censoring event and the value is the standard errors of the parameter
+        estimates of the fitted censor model.
+
+    model_vcovs: Dict
+        A dictionary where the key is the name of censoring event and the value is the variance-covariance matrices of
+        the parameter estimates of the fitted censor model.
+
+    model_fits_summary: Dict
+        A class object that contains the summary information of the fitted censor model.
+
+    """
+
+    fit_data = obs_data[obs_data[time_name] >= 0]
+    fit_data = fit_data[fit_data[censor_CCW_name].notna()]
+    fit_data['weights_CCW'] = np.NaN
+    
+    # Numerator model
+    censor_model_vars_num = list(set(re.split('[~|+]', censor_CCW_model.replace(' ', ''))) - set([censor_CCW_name] + covnames))
+    # Denominator model
+    censor_model_vars_den = list(set(re.split('[~|+]', censor_CCW_model.replace(' ', ''))) - set([censor_CCW_name]))
+    
+    for k in fit_data[time_name].unique():
+    
+        # Numerator
+        weights_num_t_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[fit_data[time_name]==k][censor_model_vars_num], fit_data[fit_data[time_name]==k][censor_CCW_name])
+        weights_num_t = weights_num_t_fit.predict_proba(fit_data[fit_data[time_name]==k][censor_model_vars_num])[:,np.where(weights_num_t_fit.classes_==0)]
+        
+        # Denominator
+        weights_den_t_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[fit_data[time_name]==k][censor_model_vars_den], fit_data[fit_data[time_name]==k][censor_CCW_name])
+        weights_den_t = weights_den_t_fit.predict_proba(fit_data[fit_data[time_name]==k][censor_model_vars_den])[:,np.where(weights_den_t_fit.classes_==0)]
+        
+        weights_CCW = weights_num_t.flatten()/weights_den_t.flatten()
+        fit_data.loc[fit_data[time_name]==k, 'weights_CCW'] = weights_CCW
+    
+    #if obs_data[obs_data[time_name] >= 0].shape[0]!=0:
+    #    obs_data[obs_data[time_name] >= 0]['weights_CCW'] = np.NaN
+    #    fit_data = pd.concat([fit_data, obs_data[obs_data[time_name] >= 0]], axis=1)
+    #else:
+    #    pass
+
+    # Remove censored individuals
+    fit_data = fit_data[ fit_data[id].isin( fit_data.loc[ ((fit_data[censor_CCW_name]==0) & (fit_data[time_name]==2)), id]) ]
+    
+    return fit_data

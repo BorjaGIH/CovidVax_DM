@@ -38,7 +38,7 @@ def read_intervention_input(interventions, int_descript):
 
 
 def error_catch(obs_data, id, time_points, interventions, intervention_dicts, int_descript, custom_histvars,
-                custom_histories, covfits_custom, covpredict_custom, time_name, outcome_name, censor_name, censor_model,
+                custom_histories, covfits_custom, covpredict_custom, time_name, outcome_name, censor_name, censor_model, censor_CCW_name, censor_CCW_model,
                 ipw_cutoff_quantile, ipw_cutoff_value, outcome_type, ref_int, covnames = None, covtypes = None,
                 covmodels=None, ymodel=None, ymodel_type=None, compevent_name=None, compevent_model=None, intcomp=None,
                 trunc_params=None, basecovs=None, time_thresholds=None):
@@ -108,6 +108,12 @@ def error_catch(obs_data, id, time_points, interventions, intervention_dicts, in
     censor_model: Str
         A string specifying the model statement for the censoring variable. Only applicable when using inverse probability
          weights to estimate the natural course means / risk from the observed data.
+         
+    censor_CCW_name: Str
+        A string specifying the name of the censoring variable for the CCW process in obs_data.
+
+    censor_CCW_model: Str
+        A string specifying the model statement for the censoring variable for the CCW process.
 
     ipw_cutoff_quantile: Float
         Percentile value for truncation of the inverse probability weights.
@@ -193,6 +199,11 @@ def error_catch(obs_data, id, time_points, interventions, intervention_dicts, in
         raise ValueError('The censor_name should be specified when there is a censor model.')
     if censor_model is None and censor_name is not None:
         raise ValueError('The censor_model should be specified when there is a censor name.')
+        
+    if censor_CCW_name is None and censor_CCW_model is not None:
+        raise ValueError('The censor_CCW_name should be specified when there is a censor model for the CCW process.')
+    if censor_CCW_model is None and censor_CCW_name is not None:
+        raise ValueError('The censor_CCW_model should be specified when there is a censor name for the CCW process.')
 
     if ipw_cutoff_quantile:
         if ipw_cutoff_quantile < 0 or ipw_cutoff_quantile > 1:
@@ -730,7 +741,8 @@ def save_results(summary_dict, save_path):
     if not os.path.exists(sim_data_path):
         os.makedirs(sim_data_path)
     for name, sim_data in summary_dict['sim_data'].items():
-        sim_data.to_csv(os.path.join(sim_data_path, 'sim_data_{0}.csv'.format(name)))
+        #sim_data.to_csv(os.path.join(sim_data_path, 'sim_data_{0}.csv'.format(name)))
+        pass
     f = open(os.path.join(save_path, 'results.txt'), 'w')
     for k, v in summary_dict.items():
         if k != 'gformula_results' and k != 'sim_data':
