@@ -233,9 +233,11 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
             
             if ymodel_type=='ML':
                 predictive_vars = list(set(new_df.columns) - set([id]))
-                pre_y = pd.Series(outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,np.where(outcome_fit.classes_==1)].flatten())
+                #pre_y = pd.Series(outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,np.where(outcome_fit.classes_==1)].flatten())
+                pre_y = outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,np.where(outcome_fit.classes_==1)].flatten()
             else:
                 pre_y = outcome_fit.predict(new_df)
+                
 
             if outcome_type == 'survival':
                 new_df['prob1'] = pre_y
@@ -431,8 +433,8 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
 
             if ymodel_type=='ML':
                 predictive_vars = list(set(new_df.columns) - set([id]))
-                pre_y = pd.Series(outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,np.where(outcome_fit.classes_==1)].flatten())
-                print(pre_y)
+                #pre_y = pd.Series(outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,np.where(outcome_fit.classes_==1)].flatten())
+                pre_y = outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,np.where(outcome_fit.classes_==1)].flatten()
             else:
                 pre_y = outcome_fit.predict(new_df)
 

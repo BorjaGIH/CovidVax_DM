@@ -5,6 +5,7 @@ import re
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 from pytruncreg import truncreg
+from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier, GradientBoostingRegressor, GradientBoostingClassifier
 from ..utils.util import DataSet
 import pyarrow as pa
@@ -254,8 +255,6 @@ def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name
                 
             elif covtypes[k] == 'unknown-binary':
                 covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
-                #print(covnames[k])
-                #print(covar_model_vars)
                 fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[covar_model_vars], fit_data[covnames[k]])
                 #fit = GradientBoostingClassifier().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
                                 
@@ -269,8 +268,6 @@ def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name
 
             elif covtypes[k] == 'unknown-continuous':
                 covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
-                #print(covnames[k])
-                #print(covar_model_vars)
                 fit = RandomForestRegressor(n_estimators=50, n_jobs=ncores).fit(fit_data[covar_model_vars], fit_data[covnames[k]])
                 #fit = GradientBoostingRegressor().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
 
@@ -284,7 +281,7 @@ def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name
     return covariate_fits, bounds, rmses, model_coeffs, model_stderrs, model_vcovs, model_fits_summary
 
 
-def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_data, competing, compevent_name,  return_fits, yrestrictions, ncores, censor_CCW=None):
+def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_data, competing, compevent_name,  return_fits, yrestrictions, ncores, id, censor_CCW=None, censor_CCW_name=None):
     """
     This is a function to fit parametric model for the outcome.
 
@@ -363,10 +360,26 @@ def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_d
     else:
         fit_data = fit_data[fit_data[outcome_name].notna()]
         
-    if outcome_type == 'survival' or outcome_type == 'binary_eof':
+    if outcome_type == 'survival':
         if ymodel_type == 'ML':
             outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
             if censor_CCW is not None:
+                outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name], sample_weight=fit_data['weights_CCW'])
+            else:
+                outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
+        else:
+            if censor_CCW is not None:
+                raise ValueError('CCW  is not implemented for GLM outcome (requires ML outcome)')
+            else:
+                fit_data_parquet = fit_data.to_parquet()
+                fit_data_parquet = DataSet(fit_data_parquet)
+                outcome_fit = smf.glm(ymodel, fit_data, family=sm.families.Binomial()).fit()
+                
+    elif outcome_type == 'binary_eof':
+        if ymodel_type == 'ML':
+            outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
+            if censor_CCW is not None:
+                #fit_data = fit_data[ fit_data[time_name]==2 ]
                 outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name], sample_weight=fit_data['weights_CCW'])
             else:
                 outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
@@ -382,6 +395,7 @@ def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_d
         if ymodel_type == 'ML':
             outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
             if censor_CCW is not None:
+                fit_data = fit_data[ fit_data[id].isin( fit_data.loc[ ( (fit_data[time_name]==2)), id]) ] # (fit_data[censor_CCW_name]==0) &
                 outcome_fit = RandomForestRegressor(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name], sample_weight=fit_data['weights_CCW'])
             else:
                 outcome_fit = RandomForestRegressor(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
@@ -539,7 +553,7 @@ def fit_censor_model(censor_model, censor_name, time_name, obs_data, return_fits
     return censor_fit, model_coeffs, model_stderrs, model_vcovs, model_fits_summary
 
 
-def fit_predict_censor_CCW_model(censor_CCW_model, censor_CCW_name, covnames, time_name, id, obs_data, ncores):
+def fit_predict_censor_CCW_model(censor_CCW_model, censor_CCW_name, covnames, time_name, id, obs_data, ncores, outcome_type):
     """
     This is a function to fit parametric model for the CCW censor event.
 
@@ -585,33 +599,27 @@ def fit_predict_censor_CCW_model(censor_CCW_model, censor_CCW_name, covnames, ti
 
     fit_data = obs_data[obs_data[time_name] >= 0]
     fit_data = fit_data[fit_data[censor_CCW_name].notna()]
-    fit_data['weights_CCW'] = np.NaN
     
     # Numerator model
     censor_model_vars_num = list(set(re.split('[~|+]', censor_CCW_model.replace(' ', ''))) - set([censor_CCW_name] + covnames))
     # Denominator model
     censor_model_vars_den = list(set(re.split('[~|+]', censor_CCW_model.replace(' ', ''))) - set([censor_CCW_name]))
     
-    for k in fit_data[time_name].unique():
+    # Numerator
+    weights_num_t_model = LogisticRegression(n_jobs=ncores, max_iter=500).fit(fit_data[censor_model_vars_num], fit_data[censor_CCW_name])
+    weights_num_t = weights_num_t_model.predict_proba(fit_data[censor_model_vars_num])[:,np.where(weights_num_t_model.classes_==0)]
     
-        # Numerator
-        weights_num_t_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[fit_data[time_name]==k][censor_model_vars_num], fit_data[fit_data[time_name]==k][censor_CCW_name])
-        weights_num_t = weights_num_t_fit.predict_proba(fit_data[fit_data[time_name]==k][censor_model_vars_num])[:,np.where(weights_num_t_fit.classes_==0)]
+    # Denominator
+    weights_den_t_model = LogisticRegression(n_jobs=ncores, max_iter=500).fit(fit_data[censor_model_vars_den], fit_data[censor_CCW_name])
+    weights_den_t = weights_den_t_model.predict_proba(fit_data[censor_model_vars_den])[:,np.where(weights_den_t_model.classes_==0)]
+    
+    weights_CCW = weights_num_t.flatten()/weights_den_t.flatten()
+    fit_data['weights_CCW'] = weights_CCW
+    fit_data['weights_CCW'] = fit_data.groupby(id)['weights_CCW'].cumprod()
+    
+    # Remove censored patient-times
+    fit_data = fit_data[ fit_data[censor_CCW_name]==0 ]
+    fit_data.reset_index(drop=True, inplace=True)
+    # PENDING QUESTION: SHOULD I USE WEIGHTS WHEN FITTING COVARIATE MODELS?
         
-        # Denominator
-        weights_den_t_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[fit_data[time_name]==k][censor_model_vars_den], fit_data[fit_data[time_name]==k][censor_CCW_name])
-        weights_den_t = weights_den_t_fit.predict_proba(fit_data[fit_data[time_name]==k][censor_model_vars_den])[:,np.where(weights_den_t_fit.classes_==0)]
-        
-        weights_CCW = weights_num_t.flatten()/weights_den_t.flatten()
-        fit_data.loc[fit_data[time_name]==k, 'weights_CCW'] = weights_CCW
-    
-    #if obs_data[obs_data[time_name] >= 0].shape[0]!=0:
-    #    obs_data[obs_data[time_name] >= 0]['weights_CCW'] = np.NaN
-    #    fit_data = pd.concat([fit_data, obs_data[obs_data[time_name] >= 0]], axis=1)
-    #else:
-    #    pass
-
-    # Remove censored individuals
-    fit_data = fit_data[ fit_data[id].isin( fit_data.loc[ ((fit_data[censor_CCW_name]==0) & (fit_data[time_name]==2)), id]) ]
-    
     return fit_data

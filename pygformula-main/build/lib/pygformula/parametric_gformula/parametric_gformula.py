@@ -507,7 +507,7 @@ class ParametricGformula:
         
         # Compute stabilized weights and remove censored individuals
         if self.censor_CCW:
-            self.obs_data = fit_predict_censor_CCW_model(censor_CCW_model=self.censor_CCW_model, censor_CCW_name=self.censor_CCW_name, covnames=self.covnames, time_name=self.time_name, id=self.id, obs_data=self.obs_data, ncores=self.ncores)
+            self.obs_data = fit_predict_censor_CCW_model(censor_CCW_model=self.censor_CCW_model, censor_CCW_name=self.censor_CCW_name, covnames=self.covnames, time_name=self.time_name, id=self.id, obs_data=self.obs_data, ncores=self.ncores, outcome_type=self.outcome_type)
         else:
             pass
         
@@ -531,7 +531,7 @@ class ParametricGformula:
             fit_ymodel(ymodel=self.ymodel, ymodel_type=self.ymodel_type, outcome_type=self.outcome_type,
                               outcome_name=self.outcome_name, time_name=self.time_name, obs_data=self.obs_data,
                               competing=self.competing, compevent_name=self.compevent_name, return_fits=self.model_fits,
-                              yrestrictions = self.yrestrictions, ncores = self.ncores, censor_CCW=self.censor_CCW)
+                              yrestrictions = self.yrestrictions, ncores = self.ncores, id = self.id, censor_CCW=self.censor_CCW, censor_CCW_name = self.censor_CCW_name)
         model_coeffs.update(ymodel_coeffs)
         model_stderrs.update(ymodel_stderrs)
         model_vcovs.update(ymodel_vcovs)
