@@ -281,7 +281,7 @@ def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name
     return covariate_fits, bounds, rmses, model_coeffs, model_stderrs, model_vcovs, model_fits_summary
 
 
-def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_data, competing, compevent_name,  return_fits, yrestrictions, ncores, id, censor_CCW=None, censor_CCW_name=None):
+def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_data, competing, compevent_name,  return_fits, yrestrictions, ncores, id, censor_CCW=False, censor_CCW_name=None):
     """
     This is a function to fit parametric model for the outcome.
 
@@ -363,48 +363,47 @@ def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_d
     if outcome_type == 'survival':
         if ymodel_type == 'ML':
             outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
-            if censor_CCW is not None:
+            if censor_CCW:
                 outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name], sample_weight=fit_data['weights_CCW'])
             else:
                 outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
         else:
-            if censor_CCW is not None:
+            if censor_CCW:
                 raise ValueError('CCW  is not implemented for GLM outcome (requires ML outcome)')
             else:
-                fit_data_parquet = fit_data.to_parquet()
-                fit_data_parquet = DataSet(fit_data_parquet)
+                fit_data_parquet = fit_data.to_parquet('temp.parquet')
+                fit_data_parquet = DataSet('temp.parquet')
                 outcome_fit = smf.glm(ymodel, fit_data, family=sm.families.Binomial()).fit()
                 
     elif outcome_type == 'binary_eof':
         if ymodel_type == 'ML':
             outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
-            if censor_CCW is not None:
-                #fit_data = fit_data[ fit_data[time_name]==2 ]
+            if censor_CCW:
                 outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name], sample_weight=fit_data['weights_CCW'])
             else:
                 outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
         else:
-            if censor_CCW is not None:
+            if censor_CCW:
                 raise ValueError('CCW  is not implemented for GLM outcome (requires ML outcome)')
             else:
-                fit_data_parquet = fit_data.to_parquet()
-                fit_data_parquet = DataSet(fit_data_parquet)
+                fit_data_parquet = fit_data.to_parquet('temp.parquet')
+                fit_data_parquet = DataSet('temp.parquet')
                 outcome_fit = smf.glm(ymodel, fit_data, family=sm.families.Binomial()).fit()
                 
     elif outcome_type == 'continuous_eof':
         if ymodel_type == 'ML':
             outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
-            if censor_CCW is not None:
+            if censor_CCW:
                 fit_data = fit_data[ fit_data[id].isin( fit_data.loc[ ( (fit_data[time_name]==2)), id]) ] # (fit_data[censor_CCW_name]==0) &
                 outcome_fit = RandomForestRegressor(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name], sample_weight=fit_data['weights_CCW'])
             else:
                 outcome_fit = RandomForestRegressor(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
         else:
-            if censor_CCW is not None:
+            if censor_CCW:
                 raise ValueError('CCW  is not implemented for GLM outcome (requires ML outcome)')
             else:
-                fit_data_parquet = fit_data.to_parquet()
-                fit_data_parquet = DataSet(fit_data_parquet)
+                fit_data_parquet = fit_data.to_parquet('temp.parquet')
+                fit_data_parquet = DataSet('temp.parquet')
                 outcome_fit = smf.glm(ymodel, data=fit_data_parquet, family=sm.families.Gaussian()).fit()
                 
     if return_fits:
