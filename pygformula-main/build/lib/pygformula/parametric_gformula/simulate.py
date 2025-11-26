@@ -10,6 +10,9 @@ from .histories import update_precoded_history, update_custom_history
 from ..utils.helper import categorical_func
 from .interventions import intervention_func
 import gc
+import joblib
+import tempfile
+import statsmodels.api as sm
 
 
 def binorm_sample(prob):
@@ -24,7 +27,7 @@ def truc_sample(mean, rmse, a, b):
 
 
 def simulate(seed, time_points, time_name, id, obs_data, basecovs,
-             outcome_type, ymodel_type, rmses, bounds, intervention,
+             outcome_type, ymodel, ymodel_type, rmses, bounds, intervention,
              custom_histvars, custom_histories, covpredict_custom, outcome_fit, outcome_name,
              competing, compevent_name, compevent_model, compevent_fit, compevent_cens, trunc_params,
              visit_names, visit_covs, ts_visit_names, max_visits, time_thresholds, baselags, below_zero_indicator,
@@ -232,11 +235,27 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
                 new_df[compevent_name] = new_df['prob_D'].apply(binorm_sample)
             
             if ymodel_type=='ML':
-                predictive_vars = list(set(new_df.columns) - set([id]))
-                #pre_y = pd.Series(outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,np.where(outcome_fit.classes_==1)].flatten())
-                pre_y = outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,np.where(outcome_fit.classes_==1)].flatten()
+                outcome_fit_model = joblib.load(outcome_fit[0])
+                ohe = outcome_fit[1]
+                
+                outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
+                categorical_vars = [var.strip('C()') for var in outcome_model_vars if 'C(' in var]
+                noncat_vars = [var.strip('C()') for var in outcome_model_vars]
+                categorical_vars_enc = ohe.transform(new_df[categorical_vars])
+
+                df_noncat_vars = new_df[noncat_vars].reset_index(drop=True)
+                sim_data = pd.concat([df_noncat_vars, pd.DataFrame(categorical_vars_enc, columns=ohe.get_feature_names_out())], axis=1)
+                
+                pre_y = outcome_fit_model.predict_proba(sim_data[outcome_fit_model.feature_names_in_])[:,np.where(outcome_fit_model.classes_==1)].flatten()
+                # Free up RAM
+                del outcome_fit_model
+                gc.collect()
             else:
-                pre_y = outcome_fit.predict(new_df)
+                outcome_fit_model = sm.load(outcome_fit)
+                pre_y = outcome_fit_model.predict(new_df)
+                # Free up RAM
+                del outcome_fit_model
+                gc.collect()
                 
 
             if outcome_type == 'survival':
@@ -295,26 +314,41 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
                             new_df[ts_visit_name] = np.where(new_df[cov] == 0, new_df[ts_visit_name] + 1, 0)
 
                         elif covtypes[k] == 'binary':
-                            estimated_mean = covariate_fits[cov].predict(new_df)
+                            cov_fitted_model = sm.load(covariate_fits[cov])
+                            estimated_mean = cov_fitted_model.predict(new_df)
+                            # Free up RAM
+                            del cov_fitted_model
+                            gc.collect()
                             prediction = estimated_mean.apply(binorm_sample)
                             new_df[cov] = prediction
 
+
                         elif covtypes[k] == 'normal':
-                            estimated_mean = covariate_fits[cov].predict(new_df)
+                            cov_fitted_model = sm.load(covariate_fits[cov])
+                            estimated_mean = cov_fitted_model.predict(new_df)
+                            # Free up RAM
+                            del cov_fitted_model
+                            gc.collect()
                             prediction = estimated_mean.apply(norm_sample, rmse=rmses[cov])
                             prediction = np.where(prediction < bounds[cov][0], bounds[cov][0], prediction)
                             prediction = np.where(prediction > bounds[cov][1], bounds[cov][1], prediction)
                             new_df[cov] = prediction
 
+
                         elif covtypes[k] == 'categorical':
-                            predict_probs = covariate_fits[cov].predict(new_df)
+                            cov_fitted_model = sm.load(covariate_fits[cov])
+                            predict_probs = cov_fitted_model.predict(new_df)
+                            # Free up RAM
+                            del cov_fitted_model
+                            gc.collect()
                             predict_index = np.asarray(predict_probs).argmax(1)
                             prediction = list(map(lambda x: pd.Categorical(obs_data[cov]).categories[x], predict_index))
                             new_df[cov] = prediction
-
+                            
 
                         elif covtypes[k] == 'bounded normal':
-                            estimated_mean = covariate_fits[cov].predict(new_df)
+                            cov_fitted_model = joblib.load(covariate_fits[cov])
+                            estimated_mean = cov_fitted_model.predict(new_df)
                             prediction = estimated_mean.apply(norm_sample, rmse=rmses[cov])
                             prediction = prediction.apply(lambda x: x * (bounds[cov][1] - bounds[cov][0]) + bounds[cov][0])
                             prediction = np.where(prediction < bounds[cov][0], bounds[cov][0], prediction)
@@ -361,20 +395,60 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
                             new_df[cov] = prediction
 
                         elif covtypes[k] == 'unknown-binary':
+                            cov_fitted_model = joblib.load(covariate_fits[cov][0])
+                            ohe = covariate_fits[cov][1]
+                            
                             covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
-                            prediction = pd.Series(covariate_fits[cov].predict(new_df[covar_model_vars]))
+                            categorical_vars = [var.strip('C()') for var in covar_model_vars if 'C(' in var]
+                            noncat_vars = [var.strip('C()') for var in covar_model_vars]
+                            categorical_vars_enc = ohe.transform(new_df[categorical_vars])
+                            df_noncat_covars = new_df[noncat_vars].reset_index(drop=True)
+                            sim_data = pd.concat([df_noncat_covars, pd.DataFrame(categorical_vars_enc, columns=ohe.get_feature_names_out())], axis=1)
+                            
+                            prediction = pd.Series(cov_fitted_model.predict(sim_data))
+                            #prediction = prediction.apply(binorm_sample)
                             new_df[cov] = prediction
-                            # Free up memory
-                            #del covariate_fits[cov]
-                            #gc.collect()
+                            # Free up RAM
+                            del cov_fitted_model
+                            gc.collect()
+                            
+                        elif covtypes[k] == 'unknown-categorical':
+                            cov_fitted_model = joblib.load(covariate_fits[cov][0])
+                            ohe = covariate_fits[cov][1]
+                            
+                            covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
+                            categorical_vars = [var.strip('C()') for var in covar_model_vars if 'C(' in var]
+                            noncat_vars = [var.strip('C()') for var in covar_model_vars]
+                            categorical_vars_enc = ohe.transform(new_df[categorical_vars])
+                            df_noncat_covars = new_df[noncat_vars].reset_index(drop=True)
+                            sim_data = pd.concat([df_noncat_covars, pd.DataFrame(categorical_vars_enc, columns=ohe.get_feature_names_out())], axis=1)
+                            
+                            prediction = pd.Series(cov_fitted_model.predict(sim_data))
+                            new_df[cov] = prediction
+                            # Free up RAM
+                            del cov_fitted_model
+                            gc.collect()
+                            
 
                         elif covtypes[k] == 'unknown-continuous':
+                            cov_fitted_model = joblib.load(covariate_fits[cov][0])
+                            ohe = covariate_fits[cov][1]
+                            
                             covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
-                            prediction = pd.Series(covariate_fits[cov].predict(new_df[covar_model_vars]))
+                            categorical_vars = [var.strip('C()') for var in covar_model_vars if 'C(' in var]
+                            noncat_vars = [var.strip('C()') for var in covar_model_vars]
+                            categorical_vars_enc = ohe.transform(new_df[categorical_vars])
+                            df_noncat_covars = new_df[noncat_vars].reset_index(drop=True)
+                            sim_data = pd.concat([df_noncat_covars, pd.DataFrame(categorical_vars_enc, columns=ohe.get_feature_names_out())], axis=1)
+                            
+                            prediction = pd.Series(cov_fitted_model.predict(sim_data))
+                            #prediction = prediction.apply(norm_sample, rmse=rmses[cov])
+                            #prediction = np.where(prediction < bounds[cov][0], bounds[cov][0], prediction)
+                            #prediction = np.where(prediction > bounds[cov][1], bounds[cov][1], prediction)
                             new_df[cov] = prediction
-                            # Free up memory
-                            #del covariate_fits[cov]
-                            #gc.collect()
+                            # Free up RAM
+                            del cov_fitted_model
+                            gc.collect()
 
                         if visit_covs and cov in visit_covs: ### assign visited covariate the model output value or its lagged value based on visit indicator
                             visit_name = visit_names[visit_covs.index(cov)]
@@ -432,11 +506,28 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
                 new_df[compevent_name] = new_df['prob_D'].apply(binorm_sample)
 
             if ymodel_type=='ML':
-                predictive_vars = list(set(new_df.columns) - set([id]))
-                #pre_y = pd.Series(outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,np.where(outcome_fit.classes_==1)].flatten())
-                pre_y = outcome_fit.predict_proba(new_df[outcome_fit.feature_names_in_])[:,np.where(outcome_fit.classes_==1)].flatten()
+                outcome_fit_model = joblib.load(outcome_fit[0])
+                ohe = outcome_fit[1]
+                
+                outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
+                categorical_vars = [var.strip('C()') for var in outcome_model_vars if 'C(' in var]
+                noncat_vars = [var.strip('C()') for var in outcome_model_vars]
+                categorical_vars_enc = ohe.transform(new_df[categorical_vars])
+                df_noncat_vars = new_df[noncat_vars].reset_index(drop=True)
+                sim_data = pd.concat([df_noncat_vars, pd.DataFrame(categorical_vars_enc, columns=ohe.get_feature_names_out())], axis=1)
+                
+                pre_y = outcome_fit_model.predict_proba(sim_data[outcome_fit_model.feature_names_in_])[:,np.where(outcome_fit_model.classes_==1)].flatten()
+                # Free up RAM
+                del outcome_fit_model
+                gc.collect()
+
             else:
-                pre_y = outcome_fit.predict(new_df)
+                outcome_fit_model = sm.load(outcome_fit)
+                pre_y = outcome_fit_model.predict(new_df)
+                # Free up RAM
+                del outcome_fit_model
+                gc.collect()
+
 
             if outcome_type == 'survival':
                 new_df['prob1'] = pre_y
@@ -490,6 +581,4 @@ def simulate(seed, time_points, time_name, id, obs_data, basecovs,
     if outcome_type == 'binary_eof':
         g_result = pool.loc[pool[time_name] == time_points - 1]['Py'].mean()
 
-    #gc.collect()
     return {'g_result': g_result, 'pool': pool}
-

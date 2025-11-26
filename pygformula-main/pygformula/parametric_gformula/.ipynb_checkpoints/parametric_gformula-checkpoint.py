@@ -31,6 +31,7 @@ import pandas as pd
 import random
 import time
 import os
+import gc
 from joblib import Parallel, delayed
 from tqdm import tqdm
 from lifelines import CoxPHFitter
@@ -67,7 +68,7 @@ class ParametricGformula:
         A string specifying the model statement for the outcome variable.
         
     ymodel_type: Str
-        A string specifying the model type for the outcome variable, currently only supported "None" (for default), or "Random_forest".
+        A string specifying the model type for the outcome variable, currently only supported "ML" (for default), or "GLM".
 
     covnames: List, default is None
          A list of strings specifying the names of the time-varying covariates in obs_data.
@@ -200,6 +201,9 @@ class ParametricGformula:
 
     parallel: Bool, default is False
         A boolean value indicating whether to parallelize simulations of different interventions to multiple cores.
+        
+    parallel_bootstrap: Bool, default is False
+        A boolean value indicating whether to parallelize boostrapping samples.
 
     ncores: Int, default is 1
         An integer indicating the number of cores used in parallelization. It is set to 1 if not specified by users.
@@ -268,6 +272,7 @@ class ParametricGformula:
                  yrestrictions=None,
                  compevent_restrictions=None,
                  basecovs=None,
+                 parallel_bootstrap=False,
                  parallel=False,
                  ncores=None,
                  ref_int=None,
@@ -317,6 +322,7 @@ class ParametricGformula:
         self.yrestrictions = yrestrictions
         self.compevent_restrictions = compevent_restrictions
         self.basecovs = basecovs
+        self.parallel_bootstrap = parallel_bootstrap
         self.parallel = parallel
         self.ncores = ncores
         self.ref_int = ref_int
@@ -470,6 +476,7 @@ class ParametricGformula:
                 'visitprocess': self.visitprocess,
                 'basecovs': self.basecovs,
                 'parallel': self.parallel,
+                'parallel_bootstrap': self.parallel_bootstrap,
                 'ncores': self.ncores,
                 'ref_int': self.ref_int,
                 'ci_method': self.ci_method,
@@ -570,17 +577,19 @@ class ParametricGformula:
                 new_id_df[self.id] = index
                 new_df.append(new_id_df)
             data = pd.concat(new_df, ignore_index=True)
+            del data_list
+            gc.collect()
         else:
             data = self.obs_data
 
         print('start simulating.')
         if self.parallel:
             self.all_simulate_results = (
-                Parallel(n_jobs=self.ncores, prefer="threads") # Consider trying prefer="threads"  prefer="threads"
+                Parallel(n_jobs=self.ncores, prefer='threads') # Without this option (prefer), the program crashes. It adds a lot of time overhead.
                 (delayed(simulate)(seed=self.simul_seed, time_points=self.time_points, time_name=self.time_name,
                                    id=self.id, covnames=self.covnames, basecovs=self.basecovs,
                                    covmodels=self.covmodels,  covtypes=self.covtypes, cov_hist=self.cov_hist,
-                                   covariate_fits=covariate_fits, rmses=rmses, bounds=bounds, outcome_type=self.outcome_type, ymodel_type=self.ymodel_type,
+                                   covariate_fits=covariate_fits, rmses=rmses, bounds=bounds, outcome_type=self.outcome_type, ymodel=self.ymodel, ymodel_type=self.ymodel_type,
                                    obs_data=data, intervention=self.intervention_dicts[intervention_name],
                                    custom_histvars = self.custom_histvars, custom_histories=self.custom_histories,
                                    covpredict_custom = self.covpredict_custom,
@@ -602,7 +611,7 @@ class ParametricGformula:
                 simulate_result = simulate(seed=self.simul_seed, time_points=self.time_points, time_name=self.time_name,
                                    id=self.id, covnames=self.covnames, basecovs=self.basecovs,
                                    covmodels=self.covmodels,  covtypes=self.covtypes, cov_hist=self.cov_hist,
-                                   covariate_fits=covariate_fits, rmses=rmses, bounds=bounds, outcome_type=self.outcome_type, ymodel_type=self.ymodel_type,
+                                   covariate_fits=covariate_fits, rmses=rmses, bounds=bounds, outcome_type=self.outcome_type, ymodel=self.ymodel, ymodel_type=self.ymodel_type,
                                    obs_data=data, intervention=self.intervention_dicts[intervention_name],
                                    custom_histvars = self.custom_histvars, custom_histories=self.custom_histories,
                                    covpredict_custom = self.covpredict_custom,
@@ -642,6 +651,10 @@ class ParametricGformula:
             compevent_fit=compevent_fit, censor_name=self.censor_name,
             censor_fit=censor_fit, ipw_cutoff_quantile=self.ipw_cutoff_quantile,
             ipw_cutoff_value=self.ipw_cutoff_value)
+        
+        del data
+        del self.obs_data # breaks down the function plot_natural_course(), comment out if needed
+        gc.collect()
 
         if self.hazardratio:
             pool1 = self.pools[self.intcomp[0]]
@@ -676,6 +689,11 @@ class ParametricGformula:
                 cph = CoxPHFitter()
                 cph.fit(concat_data, duration_col=self.time_name, event_col=self.outcome_name)
                 self.hazard_ratio = cph.hazard_ratios_.values[0]
+        else:
+            del self.pool_dict
+            self.pool_dict = None
+            gc.collect()
+            
 
         if self.nsamples == 0:
             res_table = get_output(ref_int=self.ref_int, int_descript=self.int_descript, censor=self.censor,
@@ -688,10 +706,10 @@ class ParametricGformula:
                 print('Hazardratio value is', '{:.5f}'.format(self.hazard_ratio))
 
         else:
-            if self.parallel:
+            if self.parallel_bootstrap:
                 print('Start bootstrapping for CIs')
                 boot_results_dicts = (
-                    Parallel(n_jobs=self.ncores, prefer="threads") # Consider trying prefer="threads"  prefer="threads"
+                    Parallel(n_jobs=self.ncores)
                     (delayed(Bootstrap)(obs_data=self.origin_obs_data, boot_id=i, boot_seeds=self.boot_seeds,
                                                  int_descript=self.int_descript,
                                                  intervention_dicts = self.intervention_dicts,
@@ -744,6 +762,9 @@ class ParametricGformula:
                                                  )
 
                     boot_results_dicts.append(boot_result_dict)
+                    
+            del self.origin_obs_data
+            gc.collect()
 
             self.boot_results = [boot_results_dicts[i]['boot_results'] for i in range(self.nsamples) if boot_results_dicts[i]['boot_results'] is not None]
 
@@ -767,7 +788,7 @@ class ParametricGformula:
                                    boot_results=self.boot_results)
             self.boot_table = res_table
 
-        # build results dictionary
+        # Results dictionary
         if self.boot_diag:
             self.bootcoeffs = self.bootcoeffs
             self.bootstderrs = self.bootstderrs

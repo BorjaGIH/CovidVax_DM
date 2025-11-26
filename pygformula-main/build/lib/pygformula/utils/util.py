@@ -242,7 +242,7 @@ def error_catch(obs_data, id, time_points, interventions, intervention_dicts, in
             raise ValueError('covfits_custom and covpredict_custom should have the same length.')
 
     all_covtypes = ['binary', 'normal', 'categorical', 'bounded normal', 'zero-inflated normal', 'truncated normal',
-                    'absorbing', 'categorical time', 'square time', 'custom', 'unknown-binary', 'unknown-continuous']
+                    'absorbing', 'categorical time', 'square time', 'custom', 'unknown-binary', 'unknown-categorical', 'unknown-continuous']
 
     if covtypes is not None:
         for k, covtype in enumerate(covtypes):
@@ -740,14 +740,12 @@ def save_results(summary_dict, save_path):
     sim_data_path = os.path.join(save_path, 'sim_data')
     if not os.path.exists(sim_data_path):
         os.makedirs(sim_data_path)
-    for name, sim_data in summary_dict['sim_data'].items():
+    #for name, sim_data in summary_dict['sim_data'].items():
         #sim_data.to_csv(os.path.join(sim_data_path, 'sim_data_{0}.csv'.format(name)))
-        pass
+        #pass
     f = open(os.path.join(save_path, 'results.txt'), 'w')
     for k, v in summary_dict.items():
         if k != 'gformula_results' and k != 'sim_data':
             f.write(k + ':' + str(v))
             f.write('\n')
     f.close()
-
-

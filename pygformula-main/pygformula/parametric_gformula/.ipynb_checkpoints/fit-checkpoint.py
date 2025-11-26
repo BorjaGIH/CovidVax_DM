@@ -2,15 +2,20 @@ import numpy as np
 import pandas as pd
 import math
 import re
+import joblib
+import tempfile
+import gc
+import _pickle as pickle
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 from pytruncreg import truncreg
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier, GradientBoostingRegressor, GradientBoostingClassifier
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier, GradientBoostingRegressor, GradientBoostingClassifier, HistGradientBoostingClassifier, HistGradientBoostingRegressor 
+from sklearn.preprocessing import OneHotEncoder
+from imblearn.ensemble import BalancedRandomForestClassifier
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from ..utils.util import DataSet
-import pyarrow as pa
-import pyarrow.parquet as pq
-import time
+from sklearn import svm
 
 
 def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name, obs_data, return_fits,
@@ -111,6 +116,8 @@ def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name
     model_fits_summary = {}
 
     sub_data = obs_data[obs_data[time_name] > 0]
+    del obs_data
+    gc.collect()
 
     for k, cov in enumerate(covnames):
         if covmodels[k] != 'NA':
@@ -126,6 +133,7 @@ def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name
             else:
                 fit_data = sub_data.copy()
 
+
             if restrictions is not None:
                 restrictcovs = [restrictions[0] for i in range(len(restrictions))]
                 if cov in restrictcovs:
@@ -137,66 +145,99 @@ def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name
 
             
             if covtypes[k] == 'binary':
-                fit_data_parquet = fit_data.to_parquet('temp.parquet')
-                fit_data_parquet = DataSet('temp.parquet')
-                fit = smf.glm(covmodels[k], data=fit_data_parquet, family=sm.families.Binomial()).fit()
+                #fit_data_parquet = fit_data.to_parquet('temp/fitdata.parquet')
+                #fit_data_parquet = DataSet('temp/fitdata.parquet')
+                fit = smf.glm(covmodels[k], data=fit_data, family=sm.families.Binomial()).fit()
                 rmse = np.sqrt(np.mean((fit.predict() - fit_data[cov]) ** 2))
-                covariate_fits[cov] = fit
+                #covariate_fits[cov] = fit
                 rmses[cov] = rmse
                 if return_fits:
                     model_coeffs[cov] = fit.params
                     model_stderrs[cov] = fit.bse
                     model_vcovs[cov] = fit.cov_params()
                     model_fits_summary[cov] = fit.summary()
+                # Store fit to save RAM
+                #   /mnt/dicoms/borja_files/temp/  /vol/hdd/bvelasco/temp/  /home/bvelasco/CovidVax_DM/temp/
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pickle", dir='/home/bvelasco/CovidVax_DM/temp/') as tmp_file: 
+                    #joblib.dump(fit, tmp_file.name)
+                    fit.save(tmp_file)
+                    temp_path = tmp_file.name
+                del fit
+                gc.collect()
+                covariate_fits[cov] = temp_path
 
             elif covtypes[k] == 'normal':
                 min_cov = fit_data[cov].min()
                 max_cov = fit_data[cov].max()
                 bound = [min_cov, max_cov]
-                fit_data_parquet = fit_data.to_parquet('temp.parquet')
-                fit_data_parquet = DataSet('temp.parquet')
-                fit = smf.glm(covmodels[k], data=fit_data_parquet, family=sm.families.Gaussian()).fit()
+                #fit_data_parquet = fit_data.to_parquet('temp/fitdata.parquet')
+                #fit_data_parquet = DataSet('temp/fitdata.parquet')
+                fit = smf.glm(covmodels[k], data=fit_data, family=sm.families.Gaussian()).fit()
                 rmse = np.sqrt(np.mean((fit.predict() - fit_data[cov]) ** 2))
                 bounds[cov] = bound
-                covariate_fits[cov] = fit
+                #covariate_fits[cov] = fit
                 rmses[cov] = rmse
                 if return_fits:
                     model_coeffs[cov] = fit.params
                     model_stderrs[cov] = fit.bse
                     model_vcovs[cov] = fit.cov_params()
                     model_fits_summary[cov] = fit.summary()
+                # Store fit to save RAM
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pickle', dir='/home/bvelasco/CovidVax_DM/temp/') as tmp_file:
+                    #joblib.dump(fit, tmp_file.name)
+                    fit.save(tmp_file)
+                    temp_path = tmp_file.name
+                del fit
+                gc.collect()
+                covariate_fits[cov] = temp_path
 
             elif covtypes[k] == 'categorical':
                 fit_data[cov] = pd.Categorical(fit_data[cov]).codes
-                fit_data_parquet = fit_data.to_parquet('temp.parquet', index=False)
-                fit_data_parquet = DataSet('temp.parquet')
-                fit = smf.mnlogit(covmodels[k], data=fit_data_parquet).fit()
-                covariate_fits[cov] = fit
+                #fit_data_parquet = fit_data.to_parquet('temp/fitdata.parquet')
+                #fit_data_parquet = DataSet('temp/fitdata.parquet')
+                fit = smf.mnlogit(covmodels[k], data=fit_data).fit_regularized(disp=0)
+                #covariate_fits[cov] = fit
                 if return_fits:
                     model_coeffs[cov] = fit.params
                     model_stderrs[cov] = fit.bse
                     model_vcovs[cov] = fit.cov_params()
                     model_fits_summary[cov] = fit.summary()
+                # Store fit to save RAM
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pickle", dir='/home/bvelasco/CovidVax_DM/temp/') as tmp_file:
+                    #joblib.dump(fit, tmp_file.name)
+                    fit.save(tmp_file)
+                    temp_path = tmp_file.name
+                del fit
+                gc.collect()
+                covariate_fits[cov] = temp_path
 
             elif covtypes[k] == 'bounded normal':
                 min_cov = fit_data[cov].min()
                 max_cov = fit_data[cov].max()
                 bound = [min_cov, max_cov]
                 fit_data[cov] = fit_data[cov].apply(lambda x: (x - min_cov) / (max_cov - min_cov))
-                fit_data_parquet = fit_data.to_parquet('temp.parquet')
-                fit_data_parquet = DataSet('temp.parquet')
+                #fit_data_parquet = fit_data.to_parquet('temp/fitdata.parquet')
+                #fit_data_parquet = DataSet('temp/fitdata.parquet')
                 fit = smf.glm(covmodels[k], data=fit_data_parquet, family=sm.families.Gaussian()).fit()
                 rmse = np.sqrt(np.mean((fit.predict() - fit_data[cov]) ** 2))
                 bounds[cov] = bound
-                covariate_fits[cov] = fit
+                #covariate_fits[cov] = fit
                 rmses[cov] = rmse
                 if return_fits:
                     model_coeffs[cov] = fit.params
                     model_stderrs[cov] = fit.bse
                     model_vcovs[cov] = fit.cov_params()
                     model_fits_summary[cov] = fit.summary()
+                # Store fit to save RAM
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pickle", dir='/home/bvelasco/CovidVax_DM/temp/') as tmp_file:
+                    #joblib.dump(fit, tmp_file.name)
+                    fit.save(tmp_file)
+                    temp_path = tmp_file.name
+                del fit
+                gc.collect()
+                covariate_fits[cov] = temp_path
 
-            elif covtypes[k] == 'zero-inflated normal': # parquet not implemented
+            elif covtypes[k] == 'zero-inflated normal': # RAM saving not implemented
                 min_cov = fit_data[fit_data[cov] != 0][cov].min()
                 max_cov = fit_data[fit_data[cov] != 0][cov].max()
                 bound = [min_cov, max_cov]
@@ -217,12 +258,11 @@ def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name
                     model_vcovs[cov] = [indicator_fit.cov_params(), non_zero_fit.cov_params()]
                     model_fits_summary[cov] = [indicator_fit.summary(), non_zero_fit.summary()]
 
-            elif covtypes[k] == 'truncated normal': # parquet not implemented
+            elif covtypes[k] == 'truncated normal': # RAM saving not implemented
                 truncation_value = trunc_params[k][0]
                 truncation_direction = trunc_params[k][1]
                 fit_results = truncreg(formula=covmodels[k], data=fit_data, point=truncation_value, direction=truncation_direction)
                 covariate_fits[cov] = fit_results['result']
-
                 _, covmodel = re.split('~', covmodels[k].replace(' ', ''))
                 var_names = re.split('\+', covmodel)
                 new_data = np.concatenate((np.ones((fit_data.shape[0], 1)), fit_data[var_names].to_numpy()), axis=1)
@@ -235,7 +275,7 @@ def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name
                     model_stderrs[cov] = fit_results['SE']
                     model_vcovs[cov] = fit_results['vcov']
 
-            elif covtypes[k] == 'absorbing': # parquet not implemented
+            elif covtypes[k] == 'absorbing': # RAM saving not implemented
                 fit_data = fit_data[fit_data[time_name] > 0]
                 absorb_fit_data = fit_data[fit_data['lag1_{0}'.format(cov)] == 0]
                 cov_fit = smf.glm(covmodels[k], absorb_fit_data, family=sm.families.Binomial()).fit()
@@ -248,35 +288,108 @@ def fit_covariate_model(covmodels, covnames, covtypes, covfits_custom, time_name
                     model_vcovs[cov] = cov_fit.cov_params()
                     model_fits_summary[cov] = cov_fit.summary()
 
-            elif covtypes[k] == 'custom':
+            elif covtypes[k] == 'custom': # RAM saving not implemented
                 fit_func = covfits_custom[k]
                 cov_fit = fit_func(covmodel=covmodels[k], covname=covnames[k], fit_data=fit_data)
                 covariate_fits[cov] = cov_fit
                 
             elif covtypes[k] == 'unknown-binary':
                 covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
-                fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[covar_model_vars], fit_data[covnames[k]])
-                #fit = GradientBoostingClassifier().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
-                                
-                covariate_fits[cov] = fit
+                categorical_vars = [var.strip('C()') for var in covar_model_vars if 'C(' in var]
+                noncat_vars = [var.strip('C()') for var in covar_model_vars]
+                ohe = OneHotEncoder(sparse_output=False)
+                categorical_vars_enc = ohe.fit_transform(fit_data[categorical_vars])
+                df_noncat_vars = fit_data[noncat_vars].reset_index(drop=True)
+                train_data = pd.concat([df_noncat_vars, pd.DataFrame(categorical_vars_enc, columns=ohe.get_feature_names_out())], axis=1)
+            
+                fit = RandomForestClassifier(n_estimators=100, n_jobs=ncores, max_depth = None, max_features = None).fit(train_data, fit_data[covnames[k]])
+                #fit = BalancedRandomForestClassifier(n_jobs=ncores).fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                #fit = HistGradientBoostingClassifier().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                #fit = DecisionTreeClassifier().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                #fit = svm.SVC().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                
+                rmse = np.sqrt(np.mean((fit.predict_proba(train_data)[:,np.where(fit.classes_==1)].flatten() - fit_data[cov]) ** 2))
+                rmses[cov] = rmse
+                
                 if return_fits:
                     model_coeffs[cov] = fit.params
                     model_stderrs[cov] = fit.bse
                     model_vcovs[cov] = fit.cov_params()
                     model_fits_summary[cov] = fit.summary()
-
+                # Store fit to save RAM
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl", dir='/vol/hdd/bvelasco/temp/') as tmp_file:
+                    joblib.dump(fit, tmp_file.name)
+                    temp_path = tmp_file.name
+                del fit
+                gc.collect()
+                covariate_fits[cov] = (temp_path, ohe)
+                #covariate_fits[cov] = fit
+                
+            elif covtypes[k] == 'unknown-categorical':
+                covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))  
+                categorical_vars = [var.strip('C()') for var in covar_model_vars if 'C(' in var]
+                noncat_vars = [var.strip('C()') for var in covar_model_vars]
+                ohe = OneHotEncoder(sparse_output=False)
+                categorical_vars_enc = ohe.fit_transform(fit_data[categorical_vars])
+                df_noncat_vars = fit_data[noncat_vars].reset_index(drop=True)
+                train_data = pd.concat([df_noncat_vars, pd.DataFrame(categorical_vars_enc, columns=ohe.get_feature_names_out())], axis=1)
+                
+                fit = RandomForestClassifier(n_estimators=100, n_jobs=ncores, max_depth = None, max_features = None).fit(train_data, fit_data[covnames[k]])
+                #fit = BalancedRandomForestClassifier(n_jobs=ncores).fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                #fit = HistGradientBoostingClassifier().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                #fit = DecisionTreeClassifier().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                #fit = svm.SVC().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                
+                if return_fits:
+                    model_coeffs[cov] = fit.params
+                    model_stderrs[cov] = fit.bse
+                    model_vcovs[cov] = fit.cov_params()
+                    model_fits_summary[cov] = fit.summary()
+                # Store fit to save RAM
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl", dir='/vol/hdd/bvelasco/temp/') as tmp_file:
+                    joblib.dump(fit, tmp_file.name)
+                    temp_path = tmp_file.name
+                del fit
+                gc.collect()
+                covariate_fits[cov] = (temp_path, ohe)
+                #covariate_fits[cov] = fit
+                
 
             elif covtypes[k] == 'unknown-continuous':
+                min_cov = fit_data[cov].min()
+                max_cov = fit_data[cov].max()
+                bound = [min_cov, max_cov]
+                
                 covar_model_vars = list(set(re.split('[~|+]', covmodels[k].replace(' ', ''))) - set([covnames[k]]))
-                fit = RandomForestRegressor(n_estimators=50, n_jobs=ncores).fit(fit_data[covar_model_vars], fit_data[covnames[k]])
-                #fit = GradientBoostingRegressor().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
-
-                covariate_fits[cov] = fit
+                categorical_vars = [var.strip('C()') for var in covar_model_vars if 'C(' in var]
+                noncat_vars = [var.strip('C()') for var in covar_model_vars]
+                ohe = OneHotEncoder(sparse_output=False)
+                categorical_vars_enc = ohe.fit_transform(fit_data[categorical_vars])
+                df_noncat_vars = fit_data[noncat_vars].reset_index(drop=True)
+                train_data = pd.concat([df_noncat_vars, pd.DataFrame(categorical_vars_enc, columns=ohe.get_feature_names_out())], axis=1)
+                
+                fit = RandomForestRegressor(n_estimators=100, n_jobs=ncores, max_depth = None, max_features = None).fit(train_data, fit_data[covnames[k]])
+                #fit = HistGradientBoostingRegressor().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                #fit = DecisionTreeRegressor().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                #fit = svm.SVR().fit(fit_data[covar_model_vars], fit_data[covnames[k]])
+                
+                rmse = np.sqrt(np.mean((fit.predict(train_data) - fit_data[cov]) ** 2))
+                bounds[cov] = bound
+                rmses[cov] = rmse
+                
                 if return_fits:
                     model_coeffs[cov] = fit.params
                     model_stderrs[cov] = fit.bse
                     model_vcovs[cov] = fit.cov_params()
                     model_fits_summary[cov] = fit.summary()
+                # Store fit to save RAM
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl", dir='/vol/hdd/bvelasco/temp/') as tmp_file:
+                    joblib.dump(fit, tmp_file.name)
+                    temp_path = tmp_file.name
+                del fit
+                gc.collect()
+                covariate_fits[cov] = (temp_path, ohe)
+                #covariate_fits[cov] = fit
 
     return covariate_fits, bounds, rmses, model_coeffs, model_stderrs, model_vcovs, model_fits_summary
 
@@ -346,6 +459,8 @@ def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_d
     model_fits_summary = {}
 
     sub_data = obs_data[obs_data[time_name] >= 0]
+    del obs_data
+    gc.collect()
 
     fit_data = sub_data
     if yrestrictions is not None:
@@ -371,24 +486,56 @@ def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_d
             if censor_CCW:
                 raise ValueError('CCW  is not implemented for GLM outcome (requires ML outcome)')
             else:
-                fit_data_parquet = fit_data.to_parquet('temp.parquet')
-                fit_data_parquet = DataSet('temp.parquet')
+                #fit_data_parquet = fit_data.to_parquet('temp/fitdata.parquet')
+                #fit_data_parquet = DataSet('temp/fitdata.parquet')
                 outcome_fit = smf.glm(ymodel, fit_data, family=sm.families.Binomial()).fit()
+            # Store fit to save RAM
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pickle", dir='/home/bvelasco/CovidVax_DM/temp/') as tmp_file:
+                outcome_fit.save(tmp_file)
+                temp_path = tmp_file.name
+            del outcome_fit
+            gc.collect()
+            outcome_fit = temp_path
                 
     elif outcome_type == 'binary_eof':
         if ymodel_type == 'ML':
             outcome_model_vars = list(set(re.split('[~|+]', ymodel.replace(' ', ''))) - set([outcome_name]))
+            categorical_vars = [var.strip('C()') for var in outcome_model_vars if 'C(' in var]
+            noncat_vars = [var.strip('C()') for var in outcome_model_vars]
+            ohe = OneHotEncoder(sparse_output=False)
+            categorical_vars_enc = ohe.fit_transform(fit_data[categorical_vars])
+            df_noncat_vars = fit_data[noncat_vars].reset_index(drop=True)
+            train_data = pd.concat([df_noncat_vars, pd.DataFrame(categorical_vars_enc, columns=ohe.get_feature_names_out())], axis=1)
+            
             if censor_CCW:
-                outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name], sample_weight=fit_data['weights_CCW'])
+                outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(train_data, fit_data[outcome_name], sample_weight=fit_data['weights_CCW'])
             else:
-                outcome_fit = RandomForestClassifier(n_estimators=50, n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
+                outcome_fit = RandomForestClassifier(n_estimators=100, n_jobs=ncores, max_depth = None, max_features = None).fit(train_data, fit_data[outcome_name])
+                #outcome_fit = BalancedRandomForestClassifier(n_jobs=ncores).fit(fit_data[outcome_model_vars], fit_data[outcome_name])
+                #outcome_fit = HistGradientBoostingClassifier().fit(fit_data[outcome_model_vars], fit_data[outcome_name])
+                #outcome_fit = DecisionTreeClassifier().fit(fit_data[outcome_model_vars], fit_data[outcome_name])
+                #outcome_fit = svm.SVC().fit(fit_data[outcome_model_vars], fit_data[outcome_name])
+            # Store fit to save RAM
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pickle", dir='/vol/hdd/bvelasco/temp/') as tmp_file:
+                joblib.dump(outcome_fit, tmp_file.name)
+                temp_path = tmp_file.name
+            del outcome_fit
+            gc.collect()
+            outcome_fit = (temp_path, ohe)
         else:
             if censor_CCW:
                 raise ValueError('CCW  is not implemented for GLM outcome (requires ML outcome)')
             else:
-                fit_data_parquet = fit_data.to_parquet('temp.parquet')
-                fit_data_parquet = DataSet('temp.parquet')
+                #fit_data_parquet = fit_data.to_parquet('temp/fitdata.parquet')
+                #fit_data_parquet = DataSet('temp/fitdata.parquet')
                 outcome_fit = smf.glm(ymodel, fit_data, family=sm.families.Binomial()).fit()
+            # Store fit to save RAM
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pickle", dir='/home/bvelasco/CovidVax_DM/temp/') as tmp_file:
+                outcome_fit.save(tmp_file)
+                temp_path = tmp_file.name
+            del outcome_fit
+            gc.collect()
+            outcome_fit = temp_path
                 
     elif outcome_type == 'continuous_eof':
         if ymodel_type == 'ML':
@@ -402,8 +549,8 @@ def fit_ymodel(ymodel, ymodel_type, outcome_type, outcome_name, time_name, obs_d
             if censor_CCW:
                 raise ValueError('CCW  is not implemented for GLM outcome (requires ML outcome)')
             else:
-                fit_data_parquet = fit_data.to_parquet('temp.parquet')
-                fit_data_parquet = DataSet('temp.parquet')
+                fit_data_parquet = fit_data.to_parquet('temp/fitdata.parquet')
+                fit_data_parquet = DataSet('temp/fitdata.parquet')
                 outcome_fit = smf.glm(ymodel, data=fit_data_parquet, family=sm.families.Gaussian()).fit()
                 
     if return_fits:
@@ -599,26 +746,34 @@ def fit_predict_censor_CCW_model(censor_CCW_model, censor_CCW_name, covnames, ti
     fit_data = obs_data[obs_data[time_name] >= 0]
     fit_data = fit_data[fit_data[censor_CCW_name].notna()]
     
+    fit_data_C = fit_data.copy()
+    fit_data_C = fit_data_C[(fit_data_C[time_name]==0) | ( (fit_data_C[time_name]!=0) & (fit_data_C[censor_CCW_name]!=0) )]
+    
     # Numerator model
     censor_model_vars_num = list(set(re.split('[~|+]', censor_CCW_model.replace(' ', ''))) - set([censor_CCW_name] + covnames))
     # Denominator model
     censor_model_vars_den = list(set(re.split('[~|+]', censor_CCW_model.replace(' ', ''))) - set([censor_CCW_name]))
     
     # Numerator
-    weights_num_t_model = LogisticRegression(n_jobs=ncores, max_iter=500).fit(fit_data[censor_model_vars_num], fit_data[censor_CCW_name])
-    weights_num_t = weights_num_t_model.predict_proba(fit_data[censor_model_vars_num])[:,np.where(weights_num_t_model.classes_==0)]
+    weights_num_t_model = LogisticRegression(n_jobs=ncores, solver='newton-cholesky', max_iter=200).fit(fit_data_C[censor_model_vars_num], fit_data_C[censor_CCW_name])
+    #weights_num_t_model = RandomForestClassifier(n_jobs=ncores, n_estimators=50).fit(fit_data[censor_model_vars_num], fit_data[censor_CCW_name])
+    weights_num_t = weights_num_t_model.predict_proba(fit_data_C[censor_model_vars_num])[:,np.where(weights_num_t_model.classes_==0)]
     
     # Denominator
-    weights_den_t_model = LogisticRegression(n_jobs=ncores, max_iter=500).fit(fit_data[censor_model_vars_den], fit_data[censor_CCW_name])
-    weights_den_t = weights_den_t_model.predict_proba(fit_data[censor_model_vars_den])[:,np.where(weights_den_t_model.classes_==0)]
-    
+    weights_den_t_model = LogisticRegression(n_jobs=ncores, solver='newton-cholesky', max_iter=200).fit(fit_data_C[censor_model_vars_den], fit_data_C[censor_CCW_name])
+    #weights_den_t_model = RandomForestClassifier(n_jobs=ncores, n_estimators=50).fit(fit_data[censor_model_vars_den], fit_data[censor_CCW_name])
+    weights_den_t = weights_den_t_model.predict_proba(fit_data_C[censor_model_vars_den])[:,np.where(weights_den_t_model.classes_==0)]
+
+
     weights_CCW = weights_num_t.flatten()/weights_den_t.flatten()
-    fit_data['weights_CCW'] = weights_CCW
-    fit_data['weights_CCW'] = fit_data.groupby(id)['weights_CCW'].cumprod()
+    fit_data_C['weights_CCW'] = weights_CCW
+
+    # Count infinites
+    print("Datapoints removed due to unstable (extreme) weights:")
+    print(len(fit_data_C[np.isinf(fit_data_C['weights_CCW'].values)]))
+    # And drop them
+    fit_data_C = fit_data_C[~np.isinf(fit_data_C['weights_CCW'].values)]
+    fit_data_C['weights_CCW'] = fit_data_C.groupby(id)['weights_CCW'].cumprod()
     
-    # Remove censored patient-times
-    fit_data = fit_data[ fit_data[censor_CCW_name]==0 ]
-    fit_data.reset_index(drop=True, inplace=True)
-    # PENDING QUESTION: SHOULD I USE WEIGHTS WHEN FITTING COVARIATE MODELS?
         
-    return fit_data
+    return fit_data_C

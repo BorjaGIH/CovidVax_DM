@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import warnings
+import gc
 from lifelines import CoxPHFitter
 from .histories import update_precoded_history, update_custom_history
 from .simulate import simulate
@@ -193,11 +194,14 @@ def Bootstrap(obs_data, boot_id, boot_seeds, int_descript, intervention_dicts, c
             new_id_df[id] = index
             new_df.append(new_id_df)
         resample_data = pd.concat(new_df, ignore_index=True)
+        
+        del data_list
+        gc.collect()
 
-        update_precoded_history(pool=resample_data, covnames=covnames, cov_hist=cov_hist, covtypes=covtypes,
+        update_precoded_history(pool=resample_data, covnames=covnames, cov_hist=cov_hist, covtypes=covtypes, # Profiling ??
                                 time_name=time_name, id=id, below_zero_indicator=below_zero_indicator,
                                 baselags=baselags, ts_visit_names = ts_visit_names)
-        if custom_histvars is not None:
+        if custom_histvars is not None: 
             for t in range(time_points):
                 update_custom_history(resample_data, custom_histvars, custom_histories, time_name, t, id)
 
@@ -206,13 +210,13 @@ def Bootstrap(obs_data, boot_id, boot_seeds, int_descript, intervention_dicts, c
                                 covfits_custom=covfits_custom, time_name=time_name, obs_data=resample_data,
                                 return_fits=boot_diag, trunc_params=trunc_params, visit_names=visit_names,
                                 max_visits=max_visits, ts_visit_names=ts_visit_names,
-                                visit_covs=visit_covs, restrictions=restrictions)
+                                visit_covs=visit_covs, restrictions=restrictions, ncores=ncores)
 
         outcome_fit, ymodel_coeffs, ymodel_stderrs, ymodel_vcovs, ymodel_fits_summary = \
             fit_ymodel(ymodel=ymodel, ymodel_type=ymodel_type, outcome_type=outcome_type,
                               outcome_name=outcome_name, time_name=time_name, obs_data=resample_data,
                               competing=competing, compevent_name=compevent_name, return_fits=boot_diag,
-                              yrestrictions=yrestrictions, ncores=ncores)
+                              yrestrictions=yrestrictions, ncores=ncores, id=id)
 
         model_coeffs = {**cov_model_coeffs, **ymodel_coeffs}
         model_stderrs = {**cov_model_stderrs, **ymodel_stderrs}
@@ -242,6 +246,9 @@ def Bootstrap(obs_data, boot_id, boot_seeds, int_descript, intervention_dicts, c
                 new_id_df[id] = index
                 new_df.append(new_id_df)
             resample_data = pd.concat(new_df, ignore_index=True)
+            del data_list
+            del obs_data
+            gc.collect()
 
         boot_results = []
         boot_pools = []
@@ -266,6 +273,9 @@ def Bootstrap(obs_data, boot_id, boot_seeds, int_descript, intervention_dicts, c
                                    )
             boot_results.append(boot_result['g_result'])
             boot_pools.append(boot_result['pool'])
+            
+        del resample_data
+        gc.collect()
 
         boot_results_dict = {'boot_results': boot_results, 'bootcoeffs': model_coeffs, 'bootstderrs': model_stderrs,
                              'bootvcovs': model_vcovs}
@@ -304,6 +314,9 @@ def Bootstrap(obs_data, boot_id, boot_seeds, int_descript, intervention_dicts, c
                 hazard_ratio = cph.hazard_ratios_.values[0]
 
             boot_results_dict['boot_hr'] = hazard_ratio
+        else:
+            del boot_pools
+            gc.collect()
 
     except Exception as e:
         warnings.warn("An error occurred at bootstrap sample {0}: {1}. "

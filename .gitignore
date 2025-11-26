@@ -3,3 +3,5 @@
 *.csv.gz
 .ipynb_checkpoints/*
 *.pkl
+Computing_results/*
+Prototypes/*
