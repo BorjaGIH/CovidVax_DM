@@ -29,8 +29,6 @@ print('Data: {}'.format(data_fraction))
 
 # Loop over files
 for file in glob.glob("/mnt/dicoms/borja_files/CovidVax_DM/data/currentData02092025/chunks_100_{}/*.csv".format(missing_assumption)):
-#for i in range(76,101):
-  #file = "/mnt/dicoms/borja_files/CovidVax_DM/data/currentData11072025/chunks_100_strucmiss/included_cohort_prep_struc_miss_{}.csv".format(i)
     
   # Read data
   data = pd.read_csv(file)
@@ -141,7 +139,6 @@ for file in glob.glob("/mnt/dicoms/borja_files/CovidVax_DM/data/currentData02092
       'test_res_bg_ ~ lag1_test_res_bg_ + lag1_test_res_imc_ + data_naixement + C(pais_c) + C(test_res_sociostat_1) + lag1_Vacuna + time',
       'test_res_covid_ ~ lag1_test_res_covid_ + lag1_test_res_imc_ + data_naixement + C(pais_c) + lag1_test_res_bg_ + C(lag1_test_res_smoking_) + C(test_res_sociostat_1) + lag1_Vacuna + time',
       'test_res_gma_ ~ lag1_test_res_gma_ + lag1_test_res_imc_ + data_naixement + lag1_test_res_dp_ + lag1_test_res_sp_ + lag1_test_res_chol_ + C(pais_c) + lag1_test_res_bg_ + C(lag1_test_res_smoking_) + lag1_Vacuna + time',
-      #'Vacuna ~ lag1_Vacuna + lag1_test_res_sp_ + C(lag1_test_res_smoking_) + lag1_test_res_chol_ + lag1_test_res_abdo_ + lag1_test_res_dp_ + lag1_test_res_imc_ + lag1_test_res_bg_ + lag1_test_res_covid_ + lag1_test_res_gma_ + time'
       'Vacuna ~ lag1_Vacuna + test_res_sp_ + C(test_res_smoking_) + test_res_chol_ + test_res_abdo_ + test_res_dp_ + test_res_imc_ + test_res_bg_ + test_res_covid_ + test_res_gma_ \
                 + C(abs_c) + C(pais_c) + sexe + data_naixement + C(test_res_sociostat_1) + time']
 
@@ -198,7 +195,6 @@ for file in glob.glob("/mnt/dicoms/borja_files/CovidVax_DM/data/currentData02092
       'test_res_bg_ ~ lag1_test_res_bg_ + lag1_test_res_imc_ + data_naixement + C(pais_c) + C(test_res_sociostat_1) + lag1_Vacuna + time',
       'test_res_covid_ ~ lag1_test_res_covid_ + lag1_test_res_imc_ + data_naixement + C(pais_c) + lag1_test_res_bg_ + C(lag1_test_res_smoking_) + C(test_res_sociostat_1) + lag1_Vacuna + time',
       'test_res_gma_ ~ lag1_test_res_gma_ + lag1_test_res_imc_ + data_naixement + lag1_test_res_dp_ + lag1_test_res_sp_ + lag1_test_res_chol_ + C(pais_c) + lag1_test_res_bg_ + C(lag1_test_res_smoking_) + lag1_Vacuna + time',
-      #'Vacuna ~ lag1_Vacuna + lag1_test_res_sp_ + C(lag1_test_res_smoking_) + lag1_test_res_chol_ + C(lag1_test_res_abdo_) + lag1_test_res_dp_ + lag1_test_res_imc_ + lag1_test_res_bg_ + lag1_test_res_covid_ + lag1_test_res_gma_ + time'
       'Vacuna ~ lag1_Vacuna + test_res_sp_ + C(test_res_smoking_) + test_res_chol_ + C(test_res_abdo_) + test_res_dp_ + test_res_imc_ + test_res_bg_ + test_res_covid_ + test_res_gma_ \
                 + C(abs_c) + C(pais_c) + sexe + data_naixement + C(test_res_sociostat_1) + time']
 

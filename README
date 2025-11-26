@@ -1,0 +1,8 @@
+### Data preprocess
+0_0_data_check_data.ipynb, 1_1_data_preprocess_mar.ipynb and 1_2_data_preprocess_struct_miss.ipynb are notebooks for data check and preprocessing purposes.
+
+### Result computation
+3_gformula_script.py is the python script for computing the results of the G-formula on each data chunk.
+
+### Result postprocess
+5_postprocess.ipynb is the notebook for processing the results and aggregating them.

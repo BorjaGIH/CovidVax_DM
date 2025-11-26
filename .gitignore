@@ -5,3 +5,4 @@
 *.pkl
 Computing_results/*
 Prototypes/*
+.idea/*

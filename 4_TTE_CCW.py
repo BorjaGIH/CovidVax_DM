@@ -188,8 +188,5 @@ outcome_model = RandomForestClassifier(n_jobs=20).fit(data_piv[outcome_model_var
 
 # Compute DM risk (prob) under different interventions
 
-
-
-
 # Print time
 print(datetime.datetime.now() - startTime)
