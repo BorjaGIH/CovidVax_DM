@@ -6,3 +6,6 @@
 
 ### Result postprocess
 5_postprocess.ipynb is the notebook for processing the results and aggregating them.
+
+------------------------------------------------------------------------------------
+The pygformula-main folder contains the modified pygformula package.
